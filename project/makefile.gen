@@ -1,0 +1,143 @@
+BIN= $(GDK)/bin
+LIB= $(GDK)/lib
+LIBSRC= $(GDK)/src
+LIBINCLUDE= $(GDK)/inc
+SME_LIB= $(SME_PATH)/lib
+SME_SRC= $(SME_PATH)/src
+
+SRC= src
+DATA= data
+RES= res
+INCLUDE= inc
+
+SHELL= $(BIN)/sh
+RM= $(BIN)/rm
+CP= $(BIN)/cp
+AR= $(BIN)/ar
+CC= $(BIN)/gcc
+LD= $(BIN)/ld
+ECHO= echo
+OBJCPY= $(BIN)/objcopy
+ASMZ80= $(BIN)/sjasm
+MACCER= $(BIN)/mac68k
+SIZEBND= $(BIN)/sizebnd
+BINTOS= $(BIN)/bintos
+GENRES= $(BIN)/genres
+RESCOMP= $(BIN)/rescomp
+NM= $(BIN)/nm
+MKDIR= $(BIN)/mkdir
+NM2WCH= $(BIN)/nm2wch
+ADDR2LINE= $(BIN)/addr2line
+OUT2GSRC= $(BIN)/out2gsrc
+
+OPTION=
+
+SRC_C= $(wildcard *.c)
+SRC_C+= $(wildcard $(SRC)/*.c)
+DATA_C= $(wildcard $(DATA)/*.c)
+SRC_S= $(wildcard *.s)
+SRC_S+= $(wildcard $(SRC)/*.s)
+SRC_ASM= $(wildcard *.asm)
+SRC_ASM+= $(wildcard $(SRC)/*.asm)
+SRC_S80= $(wildcard *.s80)
+SRC_S80+= $(wildcard $(SRC)/*.s80)
+
+RES_C= $(wildcard $(RES)/*.c)
+RES_S= $(wildcard $(RES)/*.s)
+RES_RC= $(wildcard *.rc)
+RES_RC+= $(wildcard $(RES)/*.rc)
+RES_RES= $(wildcard *.res)
+RES_RES+= $(wildcard $(RES)/*.res)
+
+OBJ= $(RES_RES:.res=.o)
+OBJ+= $(RES_RC:.rc=.o)
+OBJ+= $(RES_S:.s=.o)
+OBJ+= $(RES_C:.c=.o)
+OBJ+= $(SRC_S80:.s80=.o)
+OBJ+= $(SRC_ASM:.asm=.o)
+OBJ+= $(SRC_S:.s=.o)
+OBJ+= $(SRC_C:.c=.o)
+OBJ+= $(DATA_C:.c=.o)
+
+OBJS = $(addprefix out/, $(OBJ))
+
+INCS= -I$(INCLUDE) -I$(SRC) -I$(DATA) -I$(RES) -I$(LIBINCLUDE) -I$(SME_SRC)
+#FLAGS= $(OPTION) -g3 -m68000 -Wall -O1 -fomit-frame-pointer -fno-builtin $(INCS)
+FLAGS= $(OPTION) -m68000 -Wall -O1 -fomit-frame-pointer -fno-builtin $(INCS) -B$(BIN)
+#FLAGS= $(OPTION) -m68000 -Wall -O3 -fno-web -fno-gcse -fno-unit-at-a-time -fomit-frame-pointer -fno-builtin $(INCS)
+FLAGSZ80= -i$(SRC) -i$(DATA) -i$(INCLUDE) -i$(RES) -i$(LIBSRC) -i$(LIBINCLUDE) -i$(SME_SRC) 
+
+
+release: out/rom.bin
+debug: out/rom.bin out/rom.wch
+debugall: out/rom.bin out/rom.wch out/rom.gsrc
+
+all: release
+default: release
+
+.PHONY: clean
+
+clean:
+	$(RM) -f $(OBJS) out.lst out/cmd_ out/sega.o out/rom_head.bin out/rom_head.o out/rom.nm out/rom.wch out/rom.out out/rom.bin
+
+cleanobj:
+	$(RM) -f $(OBJS) out/sega.o out/rom_head.bin out/rom_head.o out/rom.out
+
+out/rom.bin: out/rom.out
+	$(OBJCPY) -O binary out/rom.out out/rom.bin
+	$(SIZEBND) out/rom.bin -sizealign 131072
+
+out/rom.wch: out/rom.out
+	$(NM) -n -S -t x out/rom.out >out/rom.nm
+	$(NM2WCH) out/rom.nm out/rom.wch
+
+out/rom.gsrc: out/rom.bin
+	$(OUT2GSRC) i out/rom.bin out/rom.addr
+	$(ADDR2LINE) -e out/rom.out < out/rom.addr > out/rom.gsrc
+
+out/rom.out: out/sega.o out/cmd_ $(SME_LIB)/libsme.a $(LIB)/libmd.a
+	$(CC) -B$(BIN) -n -T $(GDK)/md.ld -nostdlib out/sega.o @out/cmd_ $(SME_LIB)/libsme.a $(LIB)/libmd.a $(LIB)/libgcc.a -o out/rom.out
+	$(RM) out/cmd_
+
+out/cmd_: $(OBJS)
+	$(ECHO) "$(OBJS)" > out/cmd_
+
+out/sega.o: $(LIBSRC)/boot/sega.s out/rom_head.bin
+	$(MKDIR) -p out
+	$(CC) $(FLAGS) -c $(LIBSRC)/boot/sega.s -o $@
+
+out/rom_head.bin: out/rom_head.o
+	$(LD) -T $(GDK)/md.ld -nostdlib --oformat binary -o $@ $<
+
+out/rom_head.o: $(LIBSRC)/boot/rom_head.c
+	$(MKDIR) -p out
+	$(CC) $(FLAGS) -c $< -o $@
+
+
+out/%.o: %.c
+	$(MKDIR) -p out
+	$(MKDIR) -p out/src
+	$(MKDIR) -p out/data
+	$(MKDIR) -p out/res
+	$(CC) $(FLAGS) -c $< -o $@
+
+out/%.o: %.s
+	$(MKDIR) -p out
+	$(MKDIR) -p out/src
+	$(MKDIR) -p out/res
+	$(CC) $(FLAGS) -c $< -o $@
+
+%.s: %.res
+	$(RESCOMP) $< $@
+
+%.asm: %.rc
+	$(GENRES) $< $@
+
+%.s: %.asm
+	$(MACCER) -o $@ $<
+
+%.o80: %.s80
+	$(ASMZ80) $(FLAGSZ80) $< $@ out.lst
+
+%.s: %.o80
+	$(BINTOS) $<

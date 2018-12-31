@@ -1,0 +1,69 @@
+BIN= $(GDK)/bin
+LIBINCLUDE= $(GDK)/inc
+
+LIB= $(SME_PATH)/lib
+SRC= src
+
+SHELL= $(BIN)/sh
+RM= $(BIN)/rm
+CP= $(BIN)/cp
+AR= $(BIN)/ar
+CC= $(BIN)/gcc
+LD= $(BIN)/ld
+ECHO= echo
+ASMZ80= $(BIN)/sjasm
+BINTOS= $(BIN)/bintos
+
+OPTION=
+
+SRC_C= $(wildcard $(SRC)/*.c)
+SRC_S= $(wildcard $(SRC)/*.s)
+SRC_S80= $(wildcard $(SRC)/*.s80)
+
+OBJ= $(SRC_C:.c=.o)
+OBJ+= $(SRC_S:.s=.o)
+OBJ+= $(SRC_S80:.s80=.o)
+
+INCS= -I$(LIBINCLUDE) -I$(SRC)
+#FLAGS= $(OPTION) -g3 -m68000 -Wall -O1 -fomit-frame-pointer -fno-builtin $(INCS)
+FLAGS= $(OPTION) -m68000 -Wall -O3 -fomit-frame-pointer -fno-builtin $(INCS) -B$(BIN)
+#FLAGS= $(OPTION) -m68000 -Wall -O3 -fno-web -fno-gcse -fno-unit-at-a-time -fomit-frame-pointer -fno-builtin $(INCS)
+FLAGSZ80= -i$(SRC) -i$(LIBINCLUDE)
+
+
+lib: $(LIB)/libsme.a
+
+all: lib
+default: lib
+
+.PHONY: clean
+
+clean:
+	$(RM) -f $(LIB)/libsme.a $(OBJ) cmd_
+
+cleanobj:
+	$(RM) -f $(OBJ)
+
+
+$(LIB)/libsme.a: cmd_
+	$(AR) rs $(LIB)/libsme.a @cmd_
+	$(RM) cmd_
+
+cmd_: $(OBJ)
+	$(ECHO) "$(OBJ)" > cmd_
+
+%.s: %.res
+	$(RESCOMP) $< $@
+
+%.o80: %.s80
+	$(ASMZ80) $(FLAGSZ80) $< $@ out.lst
+
+%.s: %.o80
+	$(BINTOS) $<
+
+%.o: %.c
+	$(CC) $(FLAGS) -c $< -o $@
+
+%.o: %.s
+	$(CC) $(FLAGS) -c $< -o $@
+

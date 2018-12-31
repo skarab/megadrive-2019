@@ -1,0 +1,1003 @@
+001   0000             ;Driver code by Shiru, some things looked in MVSTracker MD and Zyrinx players
+002   0000             
+003   0000             ;On initialize M68K writes 4-byte addr. of music data in #1ffc..#1fff of Z80 RAM
+004   0000             ;If addr value is zero, only initialize part called (to switch off FM channels)
+005   0000             ;Player works always on 50hz
+006   0000             
+007   0000             ;11.04.07
+008   0000             
+009   0000             
+010   0000                 MACRO WaitStatus
+011   0000~            .wait
+012   0000~                bit 7,(iy)
+013   0000~                jr nz,.wait
+014   0000                 ENDM
+015   0000              
+016   0000              
+017   0000              
+018   0000                 org #0000
+019   0000              
+020   0000 F3              di              ;we don't use interrupts, no interrupt handler at #0038
+021   0001             
+022   0001 31 FC 1F        ld sp,#1ffc
+023   0004 DD 21 00 40     ld ix,#4000     ;base addr. for YM2612 (changes between #4000 and #4002)
+024   0008 FD 21 00 40     ld iy,#4000     ;for status read (fixed)
+025   000C D1              pop de
+026   000D C1              pop bc          ;addr. of music data in BC:DE, stack on top of RAM
+027   000E              
+028   000E 78              ld a,b
+029   000F B1              or c
+030   0010 20 06           jr nz,setBank
+031   0012 7A              ld a,d
+032   0013 B3              or e
+033   0014 20 02           jr nz,setBank
+034   0016 18 12           jr init2612
+035   0018             
+036   0018             setBank
+037   0018 21 00 60        ld hl,#6000     ;set bank
+038   001B 7A              ld a,d
+039   001C 07              rlca
+040   001D 77              ld (hl),a
+041   001E 79              ld a,c
+042   001F 06 08           ld b,8
+043   0021             sendA16A23
+044   0021 77              ld (hl),a
+045   0022 0F              rrca
+046   0023 10 FC           djnz sendA16A23
+047   0025              
+048   0025 CB FA           set 7,d         ;de=offset for music data
+049   0027 D5              push de
+050   0028 3E 01           ld a,1
+051   002A              
+052   002A             init2612
+053   002A             
+054   002A 11 00 22        ld de,#2200     ;switch off LFO
+055   002D CD 63 00        call wrYmPortA
+056   0030 11 00 2B        ld de,#2b00     ;switch off DAC
+057   0033 CD 63 00        call wrYmPortA
+058   0036             
+059   0036 E1              pop hl          ;player init
+060   0037 F5              push af
+061   0038 CD 76 00        call tfmInit
+062   003B F1              pop af
+063   003C B7              or a
+064   003D 20 01           jr nz,mainLoop
+065   003F 76              halt            ;stop program
+066   0040             
+067   0040             mainLoop
+068   0040 11 0A 27        ld de,#270a
+069   0043 CD 63 00        call wrYmPortA  ;reset overflow flag
+070   0046              
+071   0046                 WaitStatus
+071   0046 FD CB 00 7E >    bit 7,(iy)
+071   004A 20 FA       >    jr nz,.wait
+072   004C             
+073   004C             .wait
+074   004C FD CB 00 4E     bit 1,(iy)      ;wait for timer B overflow
+075   0050 28 FA           jr z,.wait
+076   0052              
+077   0052 CD F8 00        call tfmPlay
+078   0055              
+079   0055 11 BB 26        ld de,#26bb     ;timer B reinit
+080   0058 CD 63 00        call wrYmPortA
+081   005B 11 2A 27        ld de,#272a
+082   005E CD 63 00        call wrYmPortA
+083   0061              
+084   0061 18 DD           jr mainLoop
+085   0063             
+086   0063             
+087   0063              
+088   0063             ;write word to YM2612 port A
+089   0063             
+090   0063             wrYmPortA
+091   0063                 WaitStatus
+091   0063 FD CB 00 7E >    bit 7,(iy)
+091   0067 20 FA       >    jr nz,.wait
+092   0069 FD 72 00        ld (iy),d
+093   006C                 WaitStatus
+093   006C FD CB 00 7E >    bit 7,(iy)
+093   0070 20 FA       >    jr nz,.wait
+094   0072 FD 73 01        ld (iy+1),e
+095   0075 C9              ret
+096   0076              
+097   0076             
+098   0076             
+099   0076             ;------------------------------------------------------------------------------
+100   0076             ;TFC player code itself (by Alone Coder, adapted for SMD by Shiru)
+101   0076             ;------------------------------------------------------------------------------
+102   0076             
+103   0076              
+104   0076             tfmInit
+105   0076 EB              ex de,hl
+106   0077 21 0A 00        ld hl,10
+107   007A 19              add hl,de
+108   007B             
+109   007B DD 21 7F 06     ld ix,addrA
+110   007F 06 06           ld b,6
+111   0081             tfmini0
+112   0081 7E              ld a,(hl)
+113   0082 23              inc hl
+114   0083 E5              push hl
+115   0084 66              ld h,(hl)
+116   0085 6F              ld l,a
+117   0086 19              add hl,de
+118   0087 DD 75 00        ld (ix),l
+119   008A DD 23           inc ix
+120   008C DD 74 00        ld (ix),h
+121   008F DD 23           inc ix
+122   0091 E1              pop hl
+123   0092 23              inc hl
+124   0093 10 EC           djnz tfmini0
+125   0095             
+126   0095 01 FF 06        ld bc,#06ff ;hl=skipA
+127   0098             tfminiSk
+128   0098 71              ld (hl),c
+129   0099 23              inc hl
+130   009A 10 FC           djnz tfminiSk
+131   009C              
+132   009C             tfmshut
+133   009C 11 00 2F        ld de,#2f00
+134   009F CD 63 00        call wrYmPortA
+135   00A2 16 2D           ld d,#2d
+136   00A4 CD 63 00        call wrYmPortA
+137   00A7              
+138   00A7 DD 21 00 40     ld ix,#4000     ;sel. bank #0
+139   00AB CD C2 00        CALL tfminiPP
+140   00AE DD 21 02 40     ld ix,#4002     ;sel. bank #1
+141   00B2 CD C2 00        call tfminiPP
+142   00B5             
+143   00B5 01 00 07        ld bc,#0700      ;keyoff's
+144   00B8 3E 03           ld a,3
+145   00BA             tfmShK0
+146   00BA B9              cp c
+147   00BB C4 12 01        call nz,keyOff
+148   00BE 0C              inc c
+149   00BF 10 F9           djnz tfmShK0
+150   00C1 C9              ret
+151   00C2              
+152   00C2             
+153   00C2             tfminiPP
+154   00C2 01 00 10        ld bc,#1000
+155   00C5 11 00 30        ld de,#3000
+156   00C8 CD E2 00        call ymWrPortFL ;dt1,mul=#00
+157   00CB 1E 7F           ld e,#7f
+158   00CD 06 10           ld b,#10
+159   00CF CD E2 00        call ymWrPortFL ;tl=#7f
+160   00D2 59              ld e,c
+161   00D3 06 30           ld b,#30
+162   00D5 CD E2 00        call ymWrPortFL ;rs,ar,am,d1r,d2r=#00
+163   00D8 1E 0F           ld e,#0f
+164   00DA 06 10           ld b,#10
+165   00DC CD E2 00        call ymWrPortFL ;d1l,rr=#0f
+166   00DF 59              ld e,c
+167   00E0 06 28           ld b,#28        ;all other regs=#00
+168   00E2             
+169   00E2             ymWrPortFL
+170   00E2                 WaitStatus
+170   00E2 FD CB 00 7E >    bit 7,(iy)
+170   00E6 20 FA       >    jr nz,.wait
+171   00E8 DD 72 00        ld (ix),d
+172   00EB 14              inc d
+173   00EC                 WaitStatus
+173   00EC FD CB 00 7E >    bit 7,(iy)
+173   00F0 20 FA       >    jr nz,.wait
+174   00F2 DD 73 00        ld (ix),e
+175   00F5 10 EB           djnz ymWrPortFL
+176   00F7 C9              ret
+177   00F8              
+178   00F8             
+179   00F8             
+180   00F8             
+181   00F8             tfmPlay
+182   00F8 DD 21 00 40     ld ix,#4000 ;sel. bank #0
+183   00FC CD 57 01        CALL tfmA
+184   00FF CD 33 02        CALL tfmB
+185   0102 CD 0F 03        CALL tfmC
+186   0105 DD 21 02 40     ld ix,#4002 ;sel. bank #1
+187   0109 CD EB 03        CALL tfmD
+188   010C CD C7 04        CALL tfmE
+189   010F C3 A3 05        JP   tfmF       ;call:ret
+190   0112              
+191   0112              
+192   0112              
+193   0112             keyOff
+194   0112                 WaitStatus
+194   0112 FD CB 00 7E >    bit 7,(iy)
+194   0116 20 FA       >    jr nz,.wait
+195   0118 FD 36 00 28     ld (iy),#28
+196   011C                 WaitStatus
+196   011C FD CB 00 7E >    bit 7,(iy)
+196   0120 20 FA       >    jr nz,.wait
+197   0122 FD 71 01        ld (iy+1),c
+198   0125 C9              ret
+199   0126              
+200   0126              
+201   0126             
+202   0126             keyOn
+203   0126                 WaitStatus
+203   0126 FD CB 00 7E >    bit 7,(iy)
+203   012A 20 FA       >    jr nz,.wait
+204   012C FD 36 00 28     ld (iy),#28
+205   0130                 WaitStatus
+205   0130 FD CB 00 7E >    bit 7,(iy)
+205   0134 20 FA       >    jr nz,.wait
+206   0136 FD 77 01        ld (iy+1),a
+207   0139 C9              ret
+208   013A             
+209   013A             
+210   013A             outRegs
+211   013A E6 1F           AND #1F
+212   013C C8              ret z
+213   013D             regsX
+214   013D 46              ld b,(hl)
+215   013E 23              inc hl
+216   013F                 WaitStatus
+216   013F FD CB 00 7E >    bit 7,(iy)
+216   0143 20 FA       >    jr nz,.wait
+217   0145 DD 70 00        ld (ix),b
+218   0148 46              ld b,(hl)
+219   0149 23              inc hl
+220   014A                 WaitStatus
+220   014A FD CB 00 7E >    bit 7,(iy)
+220   014E 20 FA       >    jr nz,.wait
+221   0150 DD 70 01        ld (ix+1),b
+222   0153 3D              DEC A
+223   0154 20 E7           jr nz,regsX
+224   0156 C9              RET
+225   0157             
+226   0157             
+227   0157              
+228   0157                 MACRO processChannel _chn,_kchn,_skip,_addr
+229   0157~            
+230   0157~                LD A,(_skip)
+231   0157~                INC A
+232   0157~                jp nz,.skiperA
+233   0157~                LD HL,(_addr)
+234   0157~            .blkcntA=$+1
+235   0157~                OR 0
+236   0157~                jr z,.tfmframeA
+237   0157~                DEC A
+238   0157~                LD (.blkcntA),A
+239   0157~                jr nz,.tfmframeA
+240   0157~            .blkretaddrA=$+1
+241   0157~                LD HL,0
+242   0157~            .tfmframeA
+243   0157~                LD A,(HL)
+244   0157~                INC HL
+245   0157~                CP %01111110
+246   0157~                jr z,.beginA
+247   0157~                CP %01111111
+248   0157~                jr z,.endA
+249   0157~                CP #bf
+250   0157~                jr nc,.HLskiperA
+251   0157~                ld c,#00+_kchn
+252   0157~                call m,keyOff
+253   0157~                OR A
+254   0157~                PUSH AF
+255   0157~             
+256   0157~                RRA
+257   0157~                jr nc,.nofrqXA
+258   0157~                ex af,af
+259   0157~                WaitStatus
+260   0157~                ld (ix),#A4+_chn
+261   0157~                LD A,(HL)
+262   0157~                INC HL
+263   0157~                LD (.tfmhighA),A
+264   0157~                WaitStatus
+265   0157~                ld (ix+1),a
+266   0157~                WaitStatus
+267   0157~                ld (ix),#A0+_chn
+268   0157~                LD A,(HL)
+269   0157~                INC HL
+270   0157~                LD (.tfmlowA),A
+271   0157~                WaitStatus
+272   0157~                ld (ix+1),a
+273   0157~                ex af,af
+274   0157~            .nofrqXA
+275   0157~             
+276   0157~                call outRegs
+277   0157~                LD (_addr),HL
+278   0157~                POP AF
+279   0157~                RET P
+280   0157~                ld a,#f0+_kchn
+281   0157~                jp keyOn    ;call:ret
+282   0157~             
+283   0157~            .beginA
+284   0157~                LD (.loopaddrA),HL
+285   0157~                jr .tfmframeA
+286   0157~            .endA
+287   0157~            .loopaddrA=$+1
+288   0157~                LD HL,0
+289   0157~                jr .tfmframeA
+290   0157~            
+291   0157~            .blockA
+292   0157~                LD A,(HL)
+293   0157~                INC HL
+294   0157~                LD (.blkcntA),A
+295   0157~                LD B,(HL)
+296   0157~                INC HL
+297   0157~                LD C,(HL)
+298   0157~                INC HL
+299   0157~                LD (.blkretaddrA),HL
+300   0157~                ADD HL,BC
+301   0157~                JP .tfmframeA
+302   0157~            .OLDfarA
+303   0157~                LD B,(HL)
+304   0157~                INC HL
+305   0157~            .OLDnearA
+306   0157~                LD C,(HL)
+307   0157~                INC HL
+308   0157~                PUSH HL
+309   0157~                ADD HL,BC
+310   0157~                CALL .tfmframeA
+311   0157~                POP HL
+312   0157~                LD (_addr),HL
+313   0157~                RET
+314   0157~            .HLskiperA
+315   0157~                jr z,.OLDfarA
+316   0157~                CP %11100000
+317   0157~                jr c,.slideA
+318   0157~                LD B,A
+319   0157~                CP #FF
+320   0157~                jr z,.OLDnearA
+321   0157~                LD (_addr),HL
+322   0157~            .skiperA
+323   0157~                LD (_skip),A
+324   0157~                RET
+325   0157~            .slideA
+326   0157~                ADD A,48
+327   0157~                jr z,.blockA
+328   0157~            .tfmlowA=$+1
+329   0157~                ADD A,0
+330   0157~                LD (.tfmlowA),A
+331   0157~                LD (_addr),HL
+332   0157~            
+333   0157~                WaitStatus
+334   0157~                ld (ix),#A4+_chn
+335   0157~                WaitStatus
+336   0157~            .tfmhighA=$+3
+337   0157~                ld (ix+1),0
+338   0157~                WaitStatus
+339   0157~                ld (ix),#A0+_chn
+340   0157~                WaitStatus
+341   0157~                ld (ix+1),a
+342   0157~                RET
+343   0157~            
+344   0157                 ENDM
+345   0157              
+346   0157              
+347   0157             tfmA    processChannel 0,0,skipA,addrA
+347   0157 3A 8B 06    >    LD A,(_skip)
+347   015A 3C          >    INC A
+347   015B C2 FB 01    >    jp nz,.skiperA
+347   015E 2A 7F 06    >    LD HL,(_addr)
+347   0161 F6 00       >    OR 0
+347   0163 28 09       >    jr z,.tfmframeA
+347   0165 3D          >    DEC A
+347   0166 32 62 01    >    LD (.blkcntA),A
+347   0169 20 03       >    jr nz,.tfmframeA
+347   016B 21 00 00    >    LD HL,0
+347   016E 7E          >    LD A,(HL)
+347   016F 23          >    INC HL
+347   0170 FE 7E       >    CP %01111110
+347   0172 28 51       >    jr z,.beginA
+347   0174 FE 7F       >    CP %01111111
+347   0176 28 52       >    jr z,.endA
+347   0178 FE BF       >    CP #bf
+347   017A 30 71       >    jr nc,.HLskiperA
+347   017C 0E 00       >    ld c,#00+_kchn
+347   017E FC 12 01    >    call m,keyOff
+347   0181 B7          >    OR A
+347   0182 F5          >    PUSH AF
+347   0183 1F          >    RRA
+347   0184 30 32       >    jr nc,.nofrqXA
+347   0186 08          >    ex af,af
+347   0187 FD CB 00 7E >    bit 7,(iy)
+347   018B 20 FA       >    jr nz,.wait
+347   018D DD 36 00 A4 >    ld (ix),#A4+_chn
+347   0191 7E          >    LD A,(HL)
+347   0192 23          >    INC HL
+347   0193 32 1E 02    >    LD (.tfmhighA),A
+347   0196 FD CB 00 7E >    bit 7,(iy)
+347   019A 20 FA       >    jr nz,.wait
+347   019C DD 77 01    >    ld (ix+1),a
+347   019F FD CB 00 7E >    bit 7,(iy)
+347   01A3 20 FA       >    jr nz,.wait
+347   01A5 DD 36 00 A0 >    ld (ix),#A0+_chn
+347   01A9 7E          >    LD A,(HL)
+347   01AA 23          >    INC HL
+347   01AB 32 04 02    >    LD (.tfmlowA),A
+347   01AE FD CB 00 7E >    bit 7,(iy)
+347   01B2 20 FA       >    jr nz,.wait
+347   01B4 DD 77 01    >    ld (ix+1),a
+347   01B7 08          >    ex af,af
+347   01B8 CD 3A 01    >    call outRegs
+347   01BB 22 7F 06    >    LD (_addr),HL
+347   01BE F1          >    POP AF
+347   01BF F0          >    RET P
+347   01C0 3E F0       >    ld a,#f0+_kchn
+347   01C2 C3 26 01    >    jp keyOn    ;call:ret
+347   01C5 22 CB 01    >    LD (.loopaddrA),HL
+347   01C8 18 A4       >    jr .tfmframeA
+347   01CA 21 00 00    >    LD HL,0
+347   01CD 18 9F       >    jr .tfmframeA
+347   01CF 7E          >    LD A,(HL)
+347   01D0 23          >    INC HL
+347   01D1 32 62 01    >    LD (.blkcntA),A
+347   01D4 46          >    LD B,(HL)
+347   01D5 23          >    INC HL
+347   01D6 4E          >    LD C,(HL)
+347   01D7 23          >    INC HL
+347   01D8 22 6C 01    >    LD (.blkretaddrA),HL
+347   01DB 09          >    ADD HL,BC
+347   01DC C3 6E 01    >    JP .tfmframeA
+347   01DF 46          >    LD B,(HL)
+347   01E0 23          >    INC HL
+347   01E1 4E          >    LD C,(HL)
+347   01E2 23          >    INC HL
+347   01E3 E5          >    PUSH HL
+347   01E4 09          >    ADD HL,BC
+347   01E5 CD 6E 01    >    CALL .tfmframeA
+347   01E8 E1          >    POP HL
+347   01E9 22 7F 06    >    LD (_addr),HL
+347   01EC C9          >    RET
+347   01ED 28 F0       >    jr z,.OLDfarA
+347   01EF FE E0       >    CP %11100000
+347   01F1 38 0C       >    jr c,.slideA
+347   01F3 47          >    LD B,A
+347   01F4 FE FF       >    CP #FF
+347   01F6 28 E9       >    jr z,.OLDnearA
+347   01F8 22 7F 06    >    LD (_addr),HL
+347   01FB 32 8B 06    >    LD (_skip),A
+347   01FE C9          >    RET
+347   01FF C6 30       >    ADD A,48
+347   0201 28 CC       >    jr z,.blockA
+347   0203 C6 00       >    ADD A,0
+347   0205 32 04 02    >    LD (.tfmlowA),A
+347   0208 22 7F 06    >    LD (_addr),HL
+347   020B FD CB 00 7E >    bit 7,(iy)
+347   020F 20 FA       >    jr nz,.wait
+347   0211 DD 36 00 A4 >    ld (ix),#A4+_chn
+347   0215 FD CB 00 7E >    bit 7,(iy)
+347   0219 20 FA       >    jr nz,.wait
+347   021B DD 36 01 00 >    ld (ix+1),0
+347   021F FD CB 00 7E >    bit 7,(iy)
+347   0223 20 FA       >    jr nz,.wait
+347   0225 DD 36 00 A0 >    ld (ix),#A0+_chn
+347   0229 FD CB 00 7E >    bit 7,(iy)
+347   022D 20 FA       >    jr nz,.wait
+347   022F DD 77 01    >    ld (ix+1),a
+347   0232 C9          >    RET
+348   0233             tfmB    processChannel 1,1,skipB,addrB
+348   0233 3A 8C 06    >    LD A,(_skip)
+348   0236 3C          >    INC A
+348   0237 C2 D7 02    >    jp nz,.skiperA
+348   023A 2A 81 06    >    LD HL,(_addr)
+348   023D F6 00       >    OR 0
+348   023F 28 09       >    jr z,.tfmframeA
+348   0241 3D          >    DEC A
+348   0242 32 3E 02    >    LD (.blkcntA),A
+348   0245 20 03       >    jr nz,.tfmframeA
+348   0247 21 00 00    >    LD HL,0
+348   024A 7E          >    LD A,(HL)
+348   024B 23          >    INC HL
+348   024C FE 7E       >    CP %01111110
+348   024E 28 51       >    jr z,.beginA
+348   0250 FE 7F       >    CP %01111111
+348   0252 28 52       >    jr z,.endA
+348   0254 FE BF       >    CP #bf
+348   0256 30 71       >    jr nc,.HLskiperA
+348   0258 0E 01       >    ld c,#00+_kchn
+348   025A FC 12 01    >    call m,keyOff
+348   025D B7          >    OR A
+348   025E F5          >    PUSH AF
+348   025F 1F          >    RRA
+348   0260 30 32       >    jr nc,.nofrqXA
+348   0262 08          >    ex af,af
+348   0263 FD CB 00 7E >    bit 7,(iy)
+348   0267 20 FA       >    jr nz,.wait
+348   0269 DD 36 00 A5 >    ld (ix),#A4+_chn
+348   026D 7E          >    LD A,(HL)
+348   026E 23          >    INC HL
+348   026F 32 FA 02    >    LD (.tfmhighA),A
+348   0272 FD CB 00 7E >    bit 7,(iy)
+348   0276 20 FA       >    jr nz,.wait
+348   0278 DD 77 01    >    ld (ix+1),a
+348   027B FD CB 00 7E >    bit 7,(iy)
+348   027F 20 FA       >    jr nz,.wait
+348   0281 DD 36 00 A1 >    ld (ix),#A0+_chn
+348   0285 7E          >    LD A,(HL)
+348   0286 23          >    INC HL
+348   0287 32 E0 02    >    LD (.tfmlowA),A
+348   028A FD CB 00 7E >    bit 7,(iy)
+348   028E 20 FA       >    jr nz,.wait
+348   0290 DD 77 01    >    ld (ix+1),a
+348   0293 08          >    ex af,af
+348   0294 CD 3A 01    >    call outRegs
+348   0297 22 81 06    >    LD (_addr),HL
+348   029A F1          >    POP AF
+348   029B F0          >    RET P
+348   029C 3E F1       >    ld a,#f0+_kchn
+348   029E C3 26 01    >    jp keyOn    ;call:ret
+348   02A1 22 A7 02    >    LD (.loopaddrA),HL
+348   02A4 18 A4       >    jr .tfmframeA
+348   02A6 21 00 00    >    LD HL,0
+348   02A9 18 9F       >    jr .tfmframeA
+348   02AB 7E          >    LD A,(HL)
+348   02AC 23          >    INC HL
+348   02AD 32 3E 02    >    LD (.blkcntA),A
+348   02B0 46          >    LD B,(HL)
+348   02B1 23          >    INC HL
+348   02B2 4E          >    LD C,(HL)
+348   02B3 23          >    INC HL
+348   02B4 22 48 02    >    LD (.blkretaddrA),HL
+348   02B7 09          >    ADD HL,BC
+348   02B8 C3 4A 02    >    JP .tfmframeA
+348   02BB 46          >    LD B,(HL)
+348   02BC 23          >    INC HL
+348   02BD 4E          >    LD C,(HL)
+348   02BE 23          >    INC HL
+348   02BF E5          >    PUSH HL
+348   02C0 09          >    ADD HL,BC
+348   02C1 CD 4A 02    >    CALL .tfmframeA
+348   02C4 E1          >    POP HL
+348   02C5 22 81 06    >    LD (_addr),HL
+348   02C8 C9          >    RET
+348   02C9 28 F0       >    jr z,.OLDfarA
+348   02CB FE E0       >    CP %11100000
+348   02CD 38 0C       >    jr c,.slideA
+348   02CF 47          >    LD B,A
+348   02D0 FE FF       >    CP #FF
+348   02D2 28 E9       >    jr z,.OLDnearA
+348   02D4 22 81 06    >    LD (_addr),HL
+348   02D7 32 8C 06    >    LD (_skip),A
+348   02DA C9          >    RET
+348   02DB C6 30       >    ADD A,48
+348   02DD 28 CC       >    jr z,.blockA
+348   02DF C6 00       >    ADD A,0
+348   02E1 32 E0 02    >    LD (.tfmlowA),A
+348   02E4 22 81 06    >    LD (_addr),HL
+348   02E7 FD CB 00 7E >    bit 7,(iy)
+348   02EB 20 FA       >    jr nz,.wait
+348   02ED DD 36 00 A5 >    ld (ix),#A4+_chn
+348   02F1 FD CB 00 7E >    bit 7,(iy)
+348   02F5 20 FA       >    jr nz,.wait
+348   02F7 DD 36 01 00 >    ld (ix+1),0
+348   02FB FD CB 00 7E >    bit 7,(iy)
+348   02FF 20 FA       >    jr nz,.wait
+348   0301 DD 36 00 A1 >    ld (ix),#A0+_chn
+348   0305 FD CB 00 7E >    bit 7,(iy)
+348   0309 20 FA       >    jr nz,.wait
+348   030B DD 77 01    >    ld (ix+1),a
+348   030E C9          >    RET
+349   030F             tfmC    processChannel 2,2,skipC,addrC
+349   030F 3A 8D 06    >    LD A,(_skip)
+349   0312 3C          >    INC A
+349   0313 C2 B3 03    >    jp nz,.skiperA
+349   0316 2A 83 06    >    LD HL,(_addr)
+349   0319 F6 00       >    OR 0
+349   031B 28 09       >    jr z,.tfmframeA
+349   031D 3D          >    DEC A
+349   031E 32 1A 03    >    LD (.blkcntA),A
+349   0321 20 03       >    jr nz,.tfmframeA
+349   0323 21 00 00    >    LD HL,0
+349   0326 7E          >    LD A,(HL)
+349   0327 23          >    INC HL
+349   0328 FE 7E       >    CP %01111110
+349   032A 28 51       >    jr z,.beginA
+349   032C FE 7F       >    CP %01111111
+349   032E 28 52       >    jr z,.endA
+349   0330 FE BF       >    CP #bf
+349   0332 30 71       >    jr nc,.HLskiperA
+349   0334 0E 02       >    ld c,#00+_kchn
+349   0336 FC 12 01    >    call m,keyOff
+349   0339 B7          >    OR A
+349   033A F5          >    PUSH AF
+349   033B 1F          >    RRA
+349   033C 30 32       >    jr nc,.nofrqXA
+349   033E 08          >    ex af,af
+349   033F FD CB 00 7E >    bit 7,(iy)
+349   0343 20 FA       >    jr nz,.wait
+349   0345 DD 36 00 A6 >    ld (ix),#A4+_chn
+349   0349 7E          >    LD A,(HL)
+349   034A 23          >    INC HL
+349   034B 32 D6 03    >    LD (.tfmhighA),A
+349   034E FD CB 00 7E >    bit 7,(iy)
+349   0352 20 FA       >    jr nz,.wait
+349   0354 DD 77 01    >    ld (ix+1),a
+349   0357 FD CB 00 7E >    bit 7,(iy)
+349   035B 20 FA       >    jr nz,.wait
+349   035D DD 36 00 A2 >    ld (ix),#A0+_chn
+349   0361 7E          >    LD A,(HL)
+349   0362 23          >    INC HL
+349   0363 32 BC 03    >    LD (.tfmlowA),A
+349   0366 FD CB 00 7E >    bit 7,(iy)
+349   036A 20 FA       >    jr nz,.wait
+349   036C DD 77 01    >    ld (ix+1),a
+349   036F 08          >    ex af,af
+349   0370 CD 3A 01    >    call outRegs
+349   0373 22 83 06    >    LD (_addr),HL
+349   0376 F1          >    POP AF
+349   0377 F0          >    RET P
+349   0378 3E F2       >    ld a,#f0+_kchn
+349   037A C3 26 01    >    jp keyOn    ;call:ret
+349   037D 22 83 03    >    LD (.loopaddrA),HL
+349   0380 18 A4       >    jr .tfmframeA
+349   0382 21 00 00    >    LD HL,0
+349   0385 18 9F       >    jr .tfmframeA
+349   0387 7E          >    LD A,(HL)
+349   0388 23          >    INC HL
+349   0389 32 1A 03    >    LD (.blkcntA),A
+349   038C 46          >    LD B,(HL)
+349   038D 23          >    INC HL
+349   038E 4E          >    LD C,(HL)
+349   038F 23          >    INC HL
+349   0390 22 24 03    >    LD (.blkretaddrA),HL
+349   0393 09          >    ADD HL,BC
+349   0394 C3 26 03    >    JP .tfmframeA
+349   0397 46          >    LD B,(HL)
+349   0398 23          >    INC HL
+349   0399 4E          >    LD C,(HL)
+349   039A 23          >    INC HL
+349   039B E5          >    PUSH HL
+349   039C 09          >    ADD HL,BC
+349   039D CD 26 03    >    CALL .tfmframeA
+349   03A0 E1          >    POP HL
+349   03A1 22 83 06    >    LD (_addr),HL
+349   03A4 C9          >    RET
+349   03A5 28 F0       >    jr z,.OLDfarA
+349   03A7 FE E0       >    CP %11100000
+349   03A9 38 0C       >    jr c,.slideA
+349   03AB 47          >    LD B,A
+349   03AC FE FF       >    CP #FF
+349   03AE 28 E9       >    jr z,.OLDnearA
+349   03B0 22 83 06    >    LD (_addr),HL
+349   03B3 32 8D 06    >    LD (_skip),A
+349   03B6 C9          >    RET
+349   03B7 C6 30       >    ADD A,48
+349   03B9 28 CC       >    jr z,.blockA
+349   03BB C6 00       >    ADD A,0
+349   03BD 32 BC 03    >    LD (.tfmlowA),A
+349   03C0 22 83 06    >    LD (_addr),HL
+349   03C3 FD CB 00 7E >    bit 7,(iy)
+349   03C7 20 FA       >    jr nz,.wait
+349   03C9 DD 36 00 A6 >    ld (ix),#A4+_chn
+349   03CD FD CB 00 7E >    bit 7,(iy)
+349   03D1 20 FA       >    jr nz,.wait
+349   03D3 DD 36 01 00 >    ld (ix+1),0
+349   03D7 FD CB 00 7E >    bit 7,(iy)
+349   03DB 20 FA       >    jr nz,.wait
+349   03DD DD 36 00 A2 >    ld (ix),#A0+_chn
+349   03E1 FD CB 00 7E >    bit 7,(iy)
+349   03E5 20 FA       >    jr nz,.wait
+349   03E7 DD 77 01    >    ld (ix+1),a
+349   03EA C9          >    RET
+350   03EB             tfmD    processChannel 0,4,skipD,addrD
+350   03EB 3A 8E 06    >    LD A,(_skip)
+350   03EE 3C          >    INC A
+350   03EF C2 8F 04    >    jp nz,.skiperA
+350   03F2 2A 85 06    >    LD HL,(_addr)
+350   03F5 F6 00       >    OR 0
+350   03F7 28 09       >    jr z,.tfmframeA
+350   03F9 3D          >    DEC A
+350   03FA 32 F6 03    >    LD (.blkcntA),A
+350   03FD 20 03       >    jr nz,.tfmframeA
+350   03FF 21 00 00    >    LD HL,0
+350   0402 7E          >    LD A,(HL)
+350   0403 23          >    INC HL
+350   0404 FE 7E       >    CP %01111110
+350   0406 28 51       >    jr z,.beginA
+350   0408 FE 7F       >    CP %01111111
+350   040A 28 52       >    jr z,.endA
+350   040C FE BF       >    CP #bf
+350   040E 30 71       >    jr nc,.HLskiperA
+350   0410 0E 04       >    ld c,#00+_kchn
+350   0412 FC 12 01    >    call m,keyOff
+350   0415 B7          >    OR A
+350   0416 F5          >    PUSH AF
+350   0417 1F          >    RRA
+350   0418 30 32       >    jr nc,.nofrqXA
+350   041A 08          >    ex af,af
+350   041B FD CB 00 7E >    bit 7,(iy)
+350   041F 20 FA       >    jr nz,.wait
+350   0421 DD 36 00 A4 >    ld (ix),#A4+_chn
+350   0425 7E          >    LD A,(HL)
+350   0426 23          >    INC HL
+350   0427 32 B2 04    >    LD (.tfmhighA),A
+350   042A FD CB 00 7E >    bit 7,(iy)
+350   042E 20 FA       >    jr nz,.wait
+350   0430 DD 77 01    >    ld (ix+1),a
+350   0433 FD CB 00 7E >    bit 7,(iy)
+350   0437 20 FA       >    jr nz,.wait
+350   0439 DD 36 00 A0 >    ld (ix),#A0+_chn
+350   043D 7E          >    LD A,(HL)
+350   043E 23          >    INC HL
+350   043F 32 98 04    >    LD (.tfmlowA),A
+350   0442 FD CB 00 7E >    bit 7,(iy)
+350   0446 20 FA       >    jr nz,.wait
+350   0448 DD 77 01    >    ld (ix+1),a
+350   044B 08          >    ex af,af
+350   044C CD 3A 01    >    call outRegs
+350   044F 22 85 06    >    LD (_addr),HL
+350   0452 F1          >    POP AF
+350   0453 F0          >    RET P
+350   0454 3E F4       >    ld a,#f0+_kchn
+350   0456 C3 26 01    >    jp keyOn    ;call:ret
+350   0459 22 5F 04    >    LD (.loopaddrA),HL
+350   045C 18 A4       >    jr .tfmframeA
+350   045E 21 00 00    >    LD HL,0
+350   0461 18 9F       >    jr .tfmframeA
+350   0463 7E          >    LD A,(HL)
+350   0464 23          >    INC HL
+350   0465 32 F6 03    >    LD (.blkcntA),A
+350   0468 46          >    LD B,(HL)
+350   0469 23          >    INC HL
+350   046A 4E          >    LD C,(HL)
+350   046B 23          >    INC HL
+350   046C 22 00 04    >    LD (.blkretaddrA),HL
+350   046F 09          >    ADD HL,BC
+350   0470 C3 02 04    >    JP .tfmframeA
+350   0473 46          >    LD B,(HL)
+350   0474 23          >    INC HL
+350   0475 4E          >    LD C,(HL)
+350   0476 23          >    INC HL
+350   0477 E5          >    PUSH HL
+350   0478 09          >    ADD HL,BC
+350   0479 CD 02 04    >    CALL .tfmframeA
+350   047C E1          >    POP HL
+350   047D 22 85 06    >    LD (_addr),HL
+350   0480 C9          >    RET
+350   0481 28 F0       >    jr z,.OLDfarA
+350   0483 FE E0       >    CP %11100000
+350   0485 38 0C       >    jr c,.slideA
+350   0487 47          >    LD B,A
+350   0488 FE FF       >    CP #FF
+350   048A 28 E9       >    jr z,.OLDnearA
+350   048C 22 85 06    >    LD (_addr),HL
+350   048F 32 8E 06    >    LD (_skip),A
+350   0492 C9          >    RET
+350   0493 C6 30       >    ADD A,48
+350   0495 28 CC       >    jr z,.blockA
+350   0497 C6 00       >    ADD A,0
+350   0499 32 98 04    >    LD (.tfmlowA),A
+350   049C 22 85 06    >    LD (_addr),HL
+350   049F FD CB 00 7E >    bit 7,(iy)
+350   04A3 20 FA       >    jr nz,.wait
+350   04A5 DD 36 00 A4 >    ld (ix),#A4+_chn
+350   04A9 FD CB 00 7E >    bit 7,(iy)
+350   04AD 20 FA       >    jr nz,.wait
+350   04AF DD 36 01 00 >    ld (ix+1),0
+350   04B3 FD CB 00 7E >    bit 7,(iy)
+350   04B7 20 FA       >    jr nz,.wait
+350   04B9 DD 36 00 A0 >    ld (ix),#A0+_chn
+350   04BD FD CB 00 7E >    bit 7,(iy)
+350   04C1 20 FA       >    jr nz,.wait
+350   04C3 DD 77 01    >    ld (ix+1),a
+350   04C6 C9          >    RET
+351   04C7             tfmE    processChannel 1,5,skipE,addrE
+351   04C7 3A 8F 06    >    LD A,(_skip)
+351   04CA 3C          >    INC A
+351   04CB C2 6B 05    >    jp nz,.skiperA
+351   04CE 2A 87 06    >    LD HL,(_addr)
+351   04D1 F6 00       >    OR 0
+351   04D3 28 09       >    jr z,.tfmframeA
+351   04D5 3D          >    DEC A
+351   04D6 32 D2 04    >    LD (.blkcntA),A
+351   04D9 20 03       >    jr nz,.tfmframeA
+351   04DB 21 00 00    >    LD HL,0
+351   04DE 7E          >    LD A,(HL)
+351   04DF 23          >    INC HL
+351   04E0 FE 7E       >    CP %01111110
+351   04E2 28 51       >    jr z,.beginA
+351   04E4 FE 7F       >    CP %01111111
+351   04E6 28 52       >    jr z,.endA
+351   04E8 FE BF       >    CP #bf
+351   04EA 30 71       >    jr nc,.HLskiperA
+351   04EC 0E 05       >    ld c,#00+_kchn
+351   04EE FC 12 01    >    call m,keyOff
+351   04F1 B7          >    OR A
+351   04F2 F5          >    PUSH AF
+351   04F3 1F          >    RRA
+351   04F4 30 32       >    jr nc,.nofrqXA
+351   04F6 08          >    ex af,af
+351   04F7 FD CB 00 7E >    bit 7,(iy)
+351   04FB 20 FA       >    jr nz,.wait
+351   04FD DD 36 00 A5 >    ld (ix),#A4+_chn
+351   0501 7E          >    LD A,(HL)
+351   0502 23          >    INC HL
+351   0503 32 8E 05    >    LD (.tfmhighA),A
+351   0506 FD CB 00 7E >    bit 7,(iy)
+351   050A 20 FA       >    jr nz,.wait
+351   050C DD 77 01    >    ld (ix+1),a
+351   050F FD CB 00 7E >    bit 7,(iy)
+351   0513 20 FA       >    jr nz,.wait
+351   0515 DD 36 00 A1 >    ld (ix),#A0+_chn
+351   0519 7E          >    LD A,(HL)
+351   051A 23          >    INC HL
+351   051B 32 74 05    >    LD (.tfmlowA),A
+351   051E FD CB 00 7E >    bit 7,(iy)
+351   0522 20 FA       >    jr nz,.wait
+351   0524 DD 77 01    >    ld (ix+1),a
+351   0527 08          >    ex af,af
+351   0528 CD 3A 01    >    call outRegs
+351   052B 22 87 06    >    LD (_addr),HL
+351   052E F1          >    POP AF
+351   052F F0          >    RET P
+351   0530 3E F5       >    ld a,#f0+_kchn
+351   0532 C3 26 01    >    jp keyOn    ;call:ret
+351   0535 22 3B 05    >    LD (.loopaddrA),HL
+351   0538 18 A4       >    jr .tfmframeA
+351   053A 21 00 00    >    LD HL,0
+351   053D 18 9F       >    jr .tfmframeA
+351   053F 7E          >    LD A,(HL)
+351   0540 23          >    INC HL
+351   0541 32 D2 04    >    LD (.blkcntA),A
+351   0544 46          >    LD B,(HL)
+351   0545 23          >    INC HL
+351   0546 4E          >    LD C,(HL)
+351   0547 23          >    INC HL
+351   0548 22 DC 04    >    LD (.blkretaddrA),HL
+351   054B 09          >    ADD HL,BC
+351   054C C3 DE 04    >    JP .tfmframeA
+351   054F 46          >    LD B,(HL)
+351   0550 23          >    INC HL
+351   0551 4E          >    LD C,(HL)
+351   0552 23          >    INC HL
+351   0553 E5          >    PUSH HL
+351   0554 09          >    ADD HL,BC
+351   0555 CD DE 04    >    CALL .tfmframeA
+351   0558 E1          >    POP HL
+351   0559 22 87 06    >    LD (_addr),HL
+351   055C C9          >    RET
+351   055D 28 F0       >    jr z,.OLDfarA
+351   055F FE E0       >    CP %11100000
+351   0561 38 0C       >    jr c,.slideA
+351   0563 47          >    LD B,A
+351   0564 FE FF       >    CP #FF
+351   0566 28 E9       >    jr z,.OLDnearA
+351   0568 22 87 06    >    LD (_addr),HL
+351   056B 32 8F 06    >    LD (_skip),A
+351   056E C9          >    RET
+351   056F C6 30       >    ADD A,48
+351   0571 28 CC       >    jr z,.blockA
+351   0573 C6 00       >    ADD A,0
+351   0575 32 74 05    >    LD (.tfmlowA),A
+351   0578 22 87 06    >    LD (_addr),HL
+351   057B FD CB 00 7E >    bit 7,(iy)
+351   057F 20 FA       >    jr nz,.wait
+351   0581 DD 36 00 A5 >    ld (ix),#A4+_chn
+351   0585 FD CB 00 7E >    bit 7,(iy)
+351   0589 20 FA       >    jr nz,.wait
+351   058B DD 36 01 00 >    ld (ix+1),0
+351   058F FD CB 00 7E >    bit 7,(iy)
+351   0593 20 FA       >    jr nz,.wait
+351   0595 DD 36 00 A1 >    ld (ix),#A0+_chn
+351   0599 FD CB 00 7E >    bit 7,(iy)
+351   059D 20 FA       >    jr nz,.wait
+351   059F DD 77 01    >    ld (ix+1),a
+351   05A2 C9          >    RET
+352   05A3             tfmF    processChannel 2,6,skipF,addrF
+352   05A3 3A 90 06    >    LD A,(_skip)
+352   05A6 3C          >    INC A
+352   05A7 C2 47 06    >    jp nz,.skiperA
+352   05AA 2A 89 06    >    LD HL,(_addr)
+352   05AD F6 00       >    OR 0
+352   05AF 28 09       >    jr z,.tfmframeA
+352   05B1 3D          >    DEC A
+352   05B2 32 AE 05    >    LD (.blkcntA),A
+352   05B5 20 03       >    jr nz,.tfmframeA
+352   05B7 21 00 00    >    LD HL,0
+352   05BA 7E          >    LD A,(HL)
+352   05BB 23          >    INC HL
+352   05BC FE 7E       >    CP %01111110
+352   05BE 28 51       >    jr z,.beginA
+352   05C0 FE 7F       >    CP %01111111
+352   05C2 28 52       >    jr z,.endA
+352   05C4 FE BF       >    CP #bf
+352   05C6 30 71       >    jr nc,.HLskiperA
+352   05C8 0E 06       >    ld c,#00+_kchn
+352   05CA FC 12 01    >    call m,keyOff
+352   05CD B7          >    OR A
+352   05CE F5          >    PUSH AF
+352   05CF 1F          >    RRA
+352   05D0 30 32       >    jr nc,.nofrqXA
+352   05D2 08          >    ex af,af
+352   05D3 FD CB 00 7E >    bit 7,(iy)
+352   05D7 20 FA       >    jr nz,.wait
+352   05D9 DD 36 00 A6 >    ld (ix),#A4+_chn
+352   05DD 7E          >    LD A,(HL)
+352   05DE 23          >    INC HL
+352   05DF 32 6A 06    >    LD (.tfmhighA),A
+352   05E2 FD CB 00 7E >    bit 7,(iy)
+352   05E6 20 FA       >    jr nz,.wait
+352   05E8 DD 77 01    >    ld (ix+1),a
+352   05EB FD CB 00 7E >    bit 7,(iy)
+352   05EF 20 FA       >    jr nz,.wait
+352   05F1 DD 36 00 A2 >    ld (ix),#A0+_chn
+352   05F5 7E          >    LD A,(HL)
+352   05F6 23          >    INC HL
+352   05F7 32 50 06    >    LD (.tfmlowA),A
+352   05FA FD CB 00 7E >    bit 7,(iy)
+352   05FE 20 FA       >    jr nz,.wait
+352   0600 DD 77 01    >    ld (ix+1),a
+352   0603 08          >    ex af,af
+352   0604 CD 3A 01    >    call outRegs
+352   0607 22 89 06    >    LD (_addr),HL
+352   060A F1          >    POP AF
+352   060B F0          >    RET P
+352   060C 3E F6       >    ld a,#f0+_kchn
+352   060E C3 26 01    >    jp keyOn    ;call:ret
+352   0611 22 17 06    >    LD (.loopaddrA),HL
+352   0614 18 A4       >    jr .tfmframeA
+352   0616 21 00 00    >    LD HL,0
+352   0619 18 9F       >    jr .tfmframeA
+352   061B 7E          >    LD A,(HL)
+352   061C 23          >    INC HL
+352   061D 32 AE 05    >    LD (.blkcntA),A
+352   0620 46          >    LD B,(HL)
+352   0621 23          >    INC HL
+352   0622 4E          >    LD C,(HL)
+352   0623 23          >    INC HL
+352   0624 22 B8 05    >    LD (.blkretaddrA),HL
+352   0627 09          >    ADD HL,BC
+352   0628 C3 BA 05    >    JP .tfmframeA
+352   062B 46          >    LD B,(HL)
+352   062C 23          >    INC HL
+352   062D 4E          >    LD C,(HL)
+352   062E 23          >    INC HL
+352   062F E5          >    PUSH HL
+352   0630 09          >    ADD HL,BC
+352   0631 CD BA 05    >    CALL .tfmframeA
+352   0634 E1          >    POP HL
+352   0635 22 89 06    >    LD (_addr),HL
+352   0638 C9          >    RET
+352   0639 28 F0       >    jr z,.OLDfarA
+352   063B FE E0       >    CP %11100000
+352   063D 38 0C       >    jr c,.slideA
+352   063F 47          >    LD B,A
+352   0640 FE FF       >    CP #FF
+352   0642 28 E9       >    jr z,.OLDnearA
+352   0644 22 89 06    >    LD (_addr),HL
+352   0647 32 90 06    >    LD (_skip),A
+352   064A C9          >    RET
+352   064B C6 30       >    ADD A,48
+352   064D 28 CC       >    jr z,.blockA
+352   064F C6 00       >    ADD A,0
+352   0651 32 50 06    >    LD (.tfmlowA),A
+352   0654 22 89 06    >    LD (_addr),HL
+352   0657 FD CB 00 7E >    bit 7,(iy)
+352   065B 20 FA       >    jr nz,.wait
+352   065D DD 36 00 A6 >    ld (ix),#A4+_chn
+352   0661 FD CB 00 7E >    bit 7,(iy)
+352   0665 20 FA       >    jr nz,.wait
+352   0667 DD 36 01 00 >    ld (ix+1),0
+352   066B FD CB 00 7E >    bit 7,(iy)
+352   066F 20 FA       >    jr nz,.wait
+352   0671 DD 36 00 A2 >    ld (ix),#A0+_chn
+352   0675 FD CB 00 7E >    bit 7,(iy)
+352   0679 20 FA       >    jr nz,.wait
+352   067B DD 77 01    >    ld (ix+1),a
+352   067E C9          >    RET
+353   067F             
+354   067F 00 00       addrA   DW 0
+355   0681 00 00       addrB   DW 0
+356   0683 00 00       addrC   DW 0
+357   0685 00 00       addrD   DW 0
+358   0687 00 00       addrE   DW 0
+359   0689 00 00       addrF   DW 0
+360   068B             
+361   068B FF          skipA   DB -1
+362   068C FF          skipB   DB -1
+363   068D FF          skipC   DB -1
+364   068E FF          skipD   DB -1
+365   068F FF          skipE   DB -1
+366   0690 FF          skipF   DB -1
+367   0691             
+368   0691             
+369   0691             tfminitab
+370   0691 7F 06           DW addrA
+371   0693 81 06           DW addrB
+372   0695 83 06           DW addrC
+373   0697 85 06           DW addrD
+374   0699 87 06           DW addrE
+375   069B 89 06           DW addrF

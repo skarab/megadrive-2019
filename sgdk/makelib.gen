@@ -1,0 +1,78 @@
+BIN= $(GDK)/bin
+LIB= $(GDK)/lib
+
+SRC= $(GDK)/src
+RES= $(GDK)/res
+INCLUDE= $(GDK)/inc
+
+SHELL= $(BIN)/sh
+RM= $(BIN)/rm
+CP= $(BIN)/cp
+AR= $(BIN)/ar
+CC= $(BIN)/gcc
+LD= $(BIN)/ld
+ECHO= echo
+OBJCPY= $(BIN)/objcopy
+ASMZ80= $(BIN)/sjasm
+SIZEBND= $(BIN)/sizebnd
+BINTOS= $(BIN)/bintos
+RESCOMP= $(BIN)/rescomp
+NM= $(BIN)/nm
+NM2WCH= $(BIN)/nm2wch
+
+OPTION=
+
+SRC_C= $(wildcard $(SRC)/*.c)
+SRC_S= $(wildcard $(SRC)/*.s)
+SRC_S80= $(wildcard $(SRC)/*.s80)
+
+RES_RES= $(wildcard $(RES)/*.res)
+
+OBJ= $(RES_RES:.res=.o)
+OBJ+= $(SRC_S80:.s80=.o)
+OBJ+= $(SRC_S:.s=.o)
+OBJ+= $(SRC_C:.c=.o)
+
+INCS= -I$(INCLUDE) -I$(SRC) -I$(RES)
+#FLAGS= $(OPTION) -g3 -m68000 -Wall -O1 -fomit-frame-pointer -fno-builtin $(INCS)
+FLAGS= $(OPTION) -m68000 -Wall -O1 -fomit-frame-pointer -fno-builtin $(INCS) -B$(BIN)
+#FLAGS= $(OPTION) -m68000 -Wall -O3 -fno-web -fno-gcse -fno-unit-at-a-time -fomit-frame-pointer -fno-builtin $(INCS)
+FLAGSZ80= -i$(SRC) -i$(INCLUDE)
+
+
+lib: $(LIB)/libmd.a
+
+all: lib
+default: lib
+
+.PHONY: clean
+
+clean:
+	$(RM) -f $(LIB)/libmd.a $(OBJ) out.lst cmd_
+
+cleanobj:
+	$(RM) -f $(OBJ) out.lst
+
+
+$(LIB)/libmd.a: cmd_
+	$(AR) rs $(LIB)/libmd.a @cmd_
+	$(RM) cmd_
+
+cmd_: $(OBJ)
+	$(ECHO) "$(OBJ)" > cmd_
+
+
+%.s: %.res
+	$(RESCOMP) $< $@
+
+%.o80: %.s80
+	$(ASMZ80) $(FLAGSZ80) $< $@ out.lst
+
+%.s: %.o80
+	$(BINTOS) $<
+
+%.o: %.c
+	$(CC) $(FLAGS) -c $< -o $@
+
+%.o: %.s
+	$(CC) $(FLAGS) -c $< -o $@
